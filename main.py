@@ -27,6 +27,22 @@ import customtkinter as ctk
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 from tkinter import filedialog, messagebox
 
+from i18n import (
+    LANG,
+    TITLE_LOADING,
+    TITLE_UNKNOWN,
+    browser_options,
+    cookies_mode_options,
+    option_label,
+    option_value,
+    playlist_mode_options,
+    quality_options,
+    status_label,
+    t,
+    translate_known_error,
+    ui_title,
+)
+
 try:
     import yt_dlp
 except ImportError as exc:  # pragma: no cover
@@ -36,7 +52,7 @@ except ImportError as exc:  # pragma: no cover
 
 
 APP_NAME = "YT Downloader"
-APP_VERSION = "1.4.10"
+APP_VERSION = "1.5.1"
 
 
 def app_root() -> Path:
@@ -150,7 +166,7 @@ def setup_logging() -> Path:
 
         threading.excepthook = _thread_excepthook  # type: ignore[assignment]
 
-    logger.info("%s %s spuštěn", APP_NAME, APP_VERSION)
+    logger.info("%s %s spuštěn (jazyk %s)", APP_NAME, APP_VERSION, LANG)
     return LOG_FILE
 
 
@@ -184,15 +200,7 @@ class JobStatus(str, Enum):
     SKIPPED = "Přeskočeno"
 
 
-QUALITY_OPTIONS = [
-    ("Nejlepší dostupné", "best"),
-    ("4K (2160p)", "2160"),
-    ("1440p", "1440"),
-    ("1080p", "1080"),
-    ("720p", "720"),
-    ("480p", "480"),
-    ("360p", "360"),
-]
+QUALITY_OPTIONS = quality_options()
 
 # Rozpracované soubory (*.part, spojování, převod na MP3) žijí tady.
 # Po dokončení je yt-dlp přesune do cílové složky a prázdný adresář se smaže.
@@ -260,9 +268,11 @@ def format_total_gb(nbytes: int) -> str:
 
 
 def download_totals_line(videos: int, mp3s: int, nbytes: int) -> str:
-    return (
-        f"Staženo: Videa {max(0, int(videos))}, "
-        f"MP3 {max(0, int(mp3s))}, {format_total_gb(nbytes)}"
+    return t(
+        "totals",
+        videos=max(0, int(videos)),
+        mp3s=max(0, int(mp3s)),
+        size=format_total_gb(nbytes),
     )
 
 
@@ -313,7 +323,7 @@ class PlaylistEntry:
         return cls(
             video_id=data.get("video_id", ""),
             url=data.get("url", ""),
-            title=data.get("title", "Neznámé video"),
+            title=data.get("title", TITLE_UNKNOWN),
             index=int(data.get("index") or 0),
             selected=bool(data.get("selected", True)),
             status=status,
@@ -329,7 +339,7 @@ class DownloadJob:
     url: str
     mode: MediaMode
     quality: str
-    title: str = "Načítání…"
+    title: str = TITLE_LOADING
     status: JobStatus = JobStatus.QUEUED
     progress: float = 0.0
     speed: str = ""
@@ -390,7 +400,7 @@ class DownloadJob:
             url=data.get("url", ""),
             mode=mode,
             quality=data.get("quality", "best"),
-            title=data.get("title", "Načítání…"),
+            title=data.get("title", TITLE_LOADING),
             status=status,
             progress=float(data.get("progress") or 0),
             speed="",
@@ -641,11 +651,7 @@ def normalize_channel_url(url: str) -> str:
 
 
 # ask = okno s výběrem, single = jen video z odkazu, all = celý playlist
-PLAYLIST_MODE_OPTIONS = [
-    ("Vždy se zeptat", "ask"),
-    ("Jednotlivě", "single"),
-    ("Celý playlist", "all"),
-]
+PLAYLIST_MODE_OPTIONS = playlist_mode_options()
 
 
 def playlist_action(url: str, mode: str) -> str:
@@ -757,15 +763,11 @@ def disk_warning_text(folders: list[tuple[str, str]]) -> str:
         return ""
     lines: list[str] = []
     for slot in grouped.values():
-        names = " a ".join(slot["labels"])
+        names = t("and_word").join(slot["labels"])
         gb = slot["free"] / (1024 ** 3)
         shown = f"{gb:.2f} GB" if gb < 10 else f"{gb:.0f} GB"
-        lines.append(f"{slot['drive']} ({names}) — zbývá {shown}")
-    return (
-        "Na disku pro stahování zbývá méně než 5 GB.\n\n"
-        + "\n".join(lines)
-        + "\n\nUvolni místo, jinak se stahování nemusí dokončit."
-    )
+        lines.append(t("disk_line", drive=slot["drive"], names=names, shown=shown))
+    return t("disk_warning", lines="\n".join(lines))
 
 
 def clear_job_speed(job: "DownloadJob") -> None:
@@ -818,24 +820,28 @@ def queue_status_line(jobs: list["DownloadJob"], paused: bool) -> str:
             elif job.status == JobStatus.ERROR:
                 errors += 1
     if total <= 0:
-        return "Status: nic ve frontě"
+        return t("status_empty")
     remaining = total - done - errors
     if active and not paused:
-        verb = "stahuji"
+        verb = t("verb_downloading")
     elif paused and remaining > 0:
-        verb = "pozastaveno"
+        verb = t("verb_paused")
     elif remaining > 0:
-        verb = "čeká"
+        verb = t("verb_waiting")
     else:
-        verb = "hotovo"
+        verb = t("verb_done")
     if speed_bps > 0 and active and not paused:
         pretty = format_bytes(speed_bps).replace(".0 ", " ")
         speed = pretty + "/s"
     else:
         speed = "—"
-    return (
-        f"Status: {verb} {done} / {total}, chyb {errors}, "
-        f"rychlost stahování {speed}"
+    return t(
+        "status_line",
+        verb=verb,
+        done=done,
+        total=total,
+        errors=errors,
+        speed=speed,
     )
 
 
@@ -850,13 +856,8 @@ def format_seconds(s: Optional[float]) -> str:
     return f"{m}:{sec:02d}"
 
 
-BROWSER_OPTIONS = [
-    ("Firefox (doporučeno)", "firefox"),
-    ("Chrome", "chrome"),
-    ("Edge", "edge"),
-    ("Brave", "brave"),
-    ("Opera", "opera"),
-]
+BROWSER_OPTIONS = browser_options()
+COOKIE_MODE_OPTIONS = cookies_mode_options()
 
 # Chromium-based: cookie DB is often locked by background processes
 CHROMIUM_BROWSERS = {"chrome", "edge", "brave", "opera", "chromium", "vivaldi"}
@@ -1064,7 +1065,7 @@ def export_browser_cookies(browser: str, force_quit: bool = False) -> Path:
         jar = extract_cookies_from_browser(browser, None, _Log())
         jar.save(str(out))
         if not out.is_file() or out.stat().st_size == 0:
-            raise RuntimeError("Export cookies vrátil prázdný soubor")
+            raise RuntimeError(t("err.cookies_empty"))
         log.info("Cookies z %s uloženy do %s (%s položek)", browser, out, len(jar))
         return out
 
@@ -1118,44 +1119,35 @@ def friendly_error(exc: BaseException) -> str:
     msg = strip_ansi(str(exc))
     lower = msg.lower()
     if needs_cookies(msg):
-        return (
-            "YouTube vyžaduje přihlášení. Zapni Cookies (Firefox nebo cookies.txt) "
-            "v nastavení aplikace a zkus znovu."
-        )
+        return t("err.signin")
     if "unsupported url" in lower:
-        return "Neplatný nebo nepodporovaný odkaz."
+        return t("err.bad_url")
     if "claimed content" in lower or "blocked due to" in lower:
         m = re.search(
             r"blocked due to the claimed content by (.+?)(?:\.|$)",
             msg,
             re.IGNORECASE,
         )
-        who = m.group(1).strip() if m else "vlastníka práv"
-        return f"Nedostupné — zablokováno kvůli autorským právům ({who})."
+        who = m.group(1).strip() if m else t("err.rights_owner")
+        return t("err.copyright", who=who)
     if "terminated" in lower or "no longer available" in lower:
-        return "Video už není dostupné (účet zrušen / smazáno)."
+        return t("err.terminated")
     if "video unavailable" in lower:
-        return "Video není dostupné (smazané, soukromé nebo zablokované)."
+        return t("err.unavailable")
     if "private video" in lower:
-        return "Video je soukromé."
+        return t("err.private")
     if "cannot open locked file" in lower or (
         "cookie" in lower and ("could not copy" in lower or "winerror 32" in lower)
     ):
-        return "Cookies jsou zamčené, protože prohlížeč ještě běží."
+        return t("err.cookies_locked")
     if "failed to load cookies" in lower or "cookie" in lower and "permission" in lower:
-        return (
-            "Cookies z prohlížeče nejde načíst (soubor je zamčený). "
-            "Potvrď ukončení prohlížeče a zkus to znovu."
-        )
+        return t("err.cookies_locked_file")
     if "page needs to be reloaded" in lower:
-        return (
-            "YouTube dočasně odmítl požadavek. Zkus to znovu za chvíli, "
-            "nebo aktualizuj yt-dlp přes start.bat."
-        )
+        return t("err.youtube_reject")
     if "ffmpeg" in lower and ("not found" in lower or "is not installed" in lower):
-        return "Chybí ffmpeg. Nainstaluj: winget install Gyan.FFmpeg"
+        return t("err.no_ffmpeg")
     if "http error 403" in lower or "forbidden" in lower:
-        return "YouTube vrátil 403. Zkus znovu nebo aktualizuj yt-dlp."
+        return t("err.403")
     parts = [p.strip() for p in msg.replace("..", ".").split(".") if p.strip()]
     uniq: list[str] = []
     for p in parts:
@@ -1165,6 +1157,16 @@ def friendly_error(exc: BaseException) -> str:
         if p not in uniq:
             uniq.append(p)
     return ". ".join(uniq)[:240] or msg[:240]
+
+
+def display_error(msg: str) -> str:
+    """Hláška ve frontě je uložená v jazyce, ve kterém vznikla. V okně je vždy aktuální."""
+    if not msg:
+        return ""
+    known = translate_known_error(msg)
+    if known is not None:
+        return known
+    return friendly_error(RuntimeError(msg))
 
 
 def log_download_issue(context: str, exc: BaseException) -> None:
@@ -1808,7 +1810,7 @@ class DownloadEngine:
             title, entries = self._extract_flat(url)
             err: Optional[str] = None
             if not entries:
-                err = "Playlist je prázdný nebo nejde načíst."
+                err = t("err.playlist_empty")
                 entries = []
         except Exception as exc:
             log_download_issue(f"Náhled playlistu {url}", exc)
@@ -1850,17 +1852,19 @@ class DownloadEngine:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
         if not info:
-            raise RuntimeError("Nepodařilo se načíst playlist.")
+            raise RuntimeError(t("err.playlist_load"))
 
         raw_entries = [e for e in (info.get("entries") or []) if e]
         total = int(info.get("playlist_count") or len(raw_entries) or 0)
-        title = info.get("title") or f"Playlist ({total or len(raw_entries)})"
+        title = info.get("title") or t(
+            "title.playlist", n=total or len(raw_entries)
+        )
         entries: list[PlaylistEntry] = []
         for i, entry in enumerate(raw_entries, start=1):
             vid = entry.get("id") or video_id_from_url(entry.get("url") or "")
             if not is_valid_video_id(str(vid)):
                 continue
-            item_title = entry.get("title") or vid or f"Video {i}"
+            item_title = entry.get("title") or vid or t("title.video_n", n=i)
             item_url = entry.get("url") or entry.get("webpage_url") or ""
             item_url = normalize_watch_url(item_url, str(vid))
             entries.append(
@@ -1912,7 +1916,7 @@ class DownloadEngine:
 
         if not entries:
             job.status = JobStatus.ERROR
-            job.error = "Playlist je prázdný nebo nejde načíst."
+            job.error = t("err.playlist_empty")
             log_error("Playlist bez položek", url=job.url, title=title)
             self._notify(job)
             return False
@@ -1998,7 +2002,7 @@ class DownloadEngine:
         clear_job_speed(job)
         if not selected:
             job.status = JobStatus.DONE
-            job.error = "Žádné položky k stažení."
+            job.error = t("err.nothing_selected")
         elif errs:
             job.status = JobStatus.ERROR
             first = next(
@@ -2008,15 +2012,9 @@ class DownloadEngine:
             if errs == 1 and first:
                 job.error = first
             elif oks:
-                job.error = (
-                    f"Staženo {oks}, chyba u {errs}. "
-                    "Chybná videa zůstávají ve frontě — můžeš je opakovat."
-                )
+                job.error = t("err.partial", oks=oks, errs=errs)
             else:
-                job.error = (
-                    f"Nepodařilo se stáhnout {errs} videí. "
-                    "Zůstávají ve frontě — můžeš opakovat."
-                )
+                job.error = t("err.all_failed", errs=errs)
             log_error(
                 "Playlist s chybami",
                 url=job.url,
@@ -2027,9 +2025,9 @@ class DownloadEngine:
         else:
             job.status = JobStatus.DONE
             if skipped and oks:
-                job.error = f"Hotovo: {oks} staženo, {skipped} přeskočeno."
+                job.error = t("err.done_skipped", oks=oks, skipped=skipped)
             elif skipped and not oks:
-                job.error = f"Nic se nestáhlo ({skipped} přeskočeno)."
+                job.error = t("err.nothing_skipped", skipped=skipped)
             else:
                 job.error = ""
         self._notify(job)
@@ -2057,7 +2055,7 @@ class DownloadEngine:
         if job.status != JobStatus.ERROR:
             job.status = JobStatus.ERROR
         if not job.error:
-            job.error = "Stažení selhalo"
+            job.error = t("err.download_failed")
         clear_job_speed(job)
         self._notify(job)
 
@@ -2072,7 +2070,7 @@ class DownloadEngine:
         """Vrátí ok, fail, yield, pause nebo cancel."""
         vid = video_id_from_url(url)
         if vid and not is_valid_video_id(vid):
-            err = "Neplatné video ID — přeskočeno."
+            err = t("err.bad_id")
             log.warning("Neplatné video ID u %s", url)
             if entry_ref:
                 entry_ref.status = JobStatus.SKIPPED
@@ -2193,7 +2191,7 @@ class DownloadEngine:
                 return pending
             with yt_dlp.YoutubeDL(opts) as ydl:
                 # fetch title for single if needed
-                if not target and (not job.title or job.title == "Načítání…"):
+                if not target and (not job.title or job.title == TITLE_LOADING):
                     try:
                         meta = ydl.extract_info(url, download=False)
                         if meta and meta.get("title"):
@@ -2365,7 +2363,7 @@ class _HoverReveal:
         self.row = row
         self.button = button
         self.grid_kwargs = grid_kwargs
-        self.label = "Kopírovat odkaz"
+        self.label = str(button.cget("text"))
         self._token = 0
         self._bound: set[int] = set()
         self._reset_job: Optional[str] = None
@@ -2411,8 +2409,8 @@ class _HoverReveal:
         self.button.grid_remove()
         self.button.configure(text=self.label)
 
-    def flash(self, text: str = "Zkopírováno") -> None:
-        self.button.configure(text=text)
+    def flash(self, text: str = "") -> None:
+        self.button.configure(text=text or t("copied"))
         if self._reset_job:
             try:
                 self.row.after_cancel(self._reset_job)
@@ -2470,8 +2468,8 @@ class JobRow(ctk.CTkFrame):
 
         self.expand_btn = ctk.CTkButton(
             top,
-            text="Rozbalit",
-            width=100,
+            text=t("expand"),
+            width=118,
             height=28,
             fg_color="transparent",
             border_width=1,
@@ -2493,8 +2491,8 @@ class JobRow(ctk.CTkFrame):
 
         self.copy_btn = ctk.CTkButton(
             top,
-            text="Kopírovat odkaz",
-            width=132,
+            text=t("copy_link"),
+            width=150,
             height=28,
             fg_color="transparent",
             border_width=1,
@@ -2509,8 +2507,8 @@ class JobRow(ctk.CTkFrame):
 
         self.pause_btn = ctk.CTkButton(
             top,
-            text="Pauza",
-            width=110,
+            text=t("pause_short"),
+            width=120,
             height=28,
             fg_color=("#fff3e0", "#3e2f1a"),
             text_color=("#ef6c00", "#ffb74d"),
@@ -2558,7 +2556,7 @@ class JobRow(ctk.CTkFrame):
 
         self.status_lbl = ctk.CTkLabel(
             self,
-            text=job.status.value,
+            text=status_label(job.status),
             anchor="w",
             font=ctk.CTkFont(size=12),
             text_color=("#455a64", "#b0bec5"),
@@ -2586,7 +2584,8 @@ class JobRow(ctk.CTkFrame):
 
     def refresh(self, job: DownloadJob) -> None:
         self.job = job
-        title = job.title[:80] + ("…" if len(job.title) > 80 else "")
+        shown = ui_title(job.title)
+        title = shown[:80] + ("…" if len(shown) > 80 else "")
         self.title_lbl.configure(text=title)
         self.progress.set(max(0.0, min(1.0, job.progress / 100.0)))
 
@@ -2597,13 +2596,13 @@ class JobRow(ctk.CTkFrame):
             )
             meta.append(qlabel)
         if job.is_playlist:
-            kind = "Kanál" if is_channel_url(job.url) else "Playlist"
+            kind = t("channel") if is_channel_url(job.url) else t("playlist_kind")
             meta.append(
                 f"{kind} ({len(job.entries) or job.playlist_count or '?'})"
             )
         self.meta_lbl.configure(text=" · ".join(meta))
 
-        parts = [job.status.value]
+        parts = [status_label(job.status)]
         if job.status == JobStatus.RESOLVING:
             if job.resolve_total:
                 parts.append(f"{job.resolve_loaded}/{job.resolve_total}")
@@ -2619,7 +2618,7 @@ class JobRow(ctk.CTkFrame):
                 parts.append(cur.title[:40])
             err_n = sum(1 for e in job.entries if e.status == JobStatus.ERROR)
             if err_n:
-                parts.append(f"{err_n} chyb")
+                parts.append(t("error_count", n=err_n))
         if job.progress and job.status in (
             JobStatus.DOWNLOADING,
             JobStatus.RESOLVING,
@@ -2643,7 +2642,7 @@ class JobRow(ctk.CTkFrame):
                 entry.status == JobStatus.ERROR for entry in job.entries
             )
             self.error_lbl.configure(
-                text=job.error,
+                text=display_error(job.error),
                 text_color=(
                     ("#c62828", "#ef9a9a")
                     if failed
@@ -2658,7 +2657,7 @@ class JobRow(ctk.CTkFrame):
         if job.is_playlist:
             self.expand_btn.configure(
                 state="normal" if can_expand else "disabled",
-                text="Sbalit" if job.expanded and can_expand else "Rozbalit",
+                text=t("collapse") if job.expanded and can_expand else t("expand"),
             )
             self.expand_btn.grid()
         else:
@@ -2675,31 +2674,31 @@ class JobRow(ctk.CTkFrame):
         if show_pause:
             if job.status == JobStatus.READY:
                 self.pause_btn.configure(
-                    text="Pokračovat",
+                    text=t("resume_short"),
                     state="normal",
                     command=lambda jid=job.id: self.on_start(jid),
                 )
             elif self.is_globally_paused():
                 self.pause_btn.configure(
-                    text="Pauza",
+                    text=t("pause_short"),
                     state="disabled",
                     command=lambda jid=job.id: self.on_toggle_pause(jid),
                 )
             elif self.is_job_paused(job.id):
                 self.pause_btn.configure(
-                    text="Pokračovat",
+                    text=t("resume_short"),
                     state="normal",
                     command=lambda jid=job.id: self.on_toggle_pause(jid),
                 )
             elif job.status == JobStatus.PAUSED:
                 self.pause_btn.configure(
-                    text="Pokračovat",
+                    text=t("resume_short"),
                     state="normal",
                     command=lambda jid=job.id: self.on_start(jid),
                 )
             else:
                 self.pause_btn.configure(
-                    text="Pauza",
+                    text=t("pause_short"),
                     state="normal",
                     command=lambda jid=job.id: self.on_toggle_pause(jid),
                 )
@@ -2709,12 +2708,12 @@ class JobRow(ctk.CTkFrame):
 
         if job.is_playlist:
             if job.status == JobStatus.ERROR:
-                self.start_btn.configure(text="Opakovat", width=88, state="normal")
+                self.start_btn.configure(text=t("retry"), width=110, state="normal")
                 self.start_btn.grid()
             else:
                 self.start_btn.grid_remove()
         elif job.status == JobStatus.ERROR:
-            self.start_btn.configure(text="Opakovat", width=88, state="normal")
+            self.start_btn.configure(text=t("retry"), width=110, state="normal")
             self.start_btn.grid()
         else:
             show_start = job.status in (JobStatus.READY, JobStatus.PAUSED)
@@ -2771,8 +2770,8 @@ class JobRow(ctk.CTkFrame):
 
             ctk.CTkButton(
                 toolbar,
-                text="Vybrat vše",
-                width=90,
+                text=t("select_all"),
+                width=130,
                 height=28,
                 fg_color="transparent",
                 border_width=1,
@@ -2781,8 +2780,8 @@ class JobRow(ctk.CTkFrame):
             ).grid(row=0, column=0, padx=(0, 6))
             ctk.CTkButton(
                 toolbar,
-                text="Zrušit výběr",
-                width=90,
+                text=t("select_none"),
+                width=140,
                 height=28,
                 fg_color="transparent",
                 border_width=1,
@@ -2795,7 +2794,7 @@ class JobRow(ctk.CTkFrame):
 
             self._page_lbl = ctk.CTkLabel(
                 nav,
-                text=f"{start + 1}–{end} z {total}",
+                text=t("page_range", start=start + 1, end=end, total=total),
                 font=ctk.CTkFont(size=12, weight="bold"),
                 text_color=("#455a64", "#cfd8dc"),
             )
@@ -2803,8 +2802,8 @@ class JobRow(ctk.CTkFrame):
 
             prev_btn = ctk.CTkButton(
                 nav,
-                text="◀ Předchozí",
-                width=110,
+                text=t("prev"),
+                width=120,
                 height=28,
                 command=lambda: self._change_page(job, -1),
             )
@@ -2814,8 +2813,8 @@ class JobRow(ctk.CTkFrame):
 
             next_btn = ctk.CTkButton(
                 nav,
-                text="Další ▶",
-                width=100,
+                text=t("next"),
+                width=120,
                 height=28,
                 command=lambda: self._change_page(job, 1),
             )
@@ -2869,7 +2868,7 @@ class JobRow(ctk.CTkFrame):
                     row,
                     text=self._entry_status_text(entry),
                     anchor="e",
-                    width=70,
+                    width=88,
                     font=ctk.CTkFont(size=11),
                     text_color=self._entry_status_color(entry),
                 )
@@ -2877,8 +2876,8 @@ class JobRow(ctk.CTkFrame):
 
                 retry = ctk.CTkButton(
                     row,
-                    text="Opakovat",
-                    width=72,
+                    text=t("retry"),
+                    width=110,
                     height=24,
                     fg_color=("#ffebee", "#4a2424"),
                     text_color=("#c62828", "#ef9a9a"),
@@ -2896,8 +2895,8 @@ class JobRow(ctk.CTkFrame):
                 if entry_url:
                     copy_btn = ctk.CTkButton(
                         row,
-                        text="Kopírovat odkaz",
-                        width=124,
+                        text=t("copy_link"),
+                        width=140,
                         height=24,
                         font=ctk.CTkFont(size=11),
                         fg_color="transparent",
@@ -2919,7 +2918,9 @@ class JobRow(ctk.CTkFrame):
 
                 err = ctk.CTkLabel(
                     row,
-                    text=entry.error if entry.status == JobStatus.ERROR else "",
+                    text=display_error(entry.error)
+                    if entry.status == JobStatus.ERROR
+                    else "",
                     anchor="w",
                     justify="left",
                     wraplength=640,
@@ -2942,9 +2943,12 @@ class JobRow(ctk.CTkFrame):
                 foot.grid(row=2, column=0, sticky="ew", pady=(8, 0))
                 ctk.CTkButton(
                     foot,
-                    text=f"Dalších {min(ENTRIES_PAGE_SIZE, total - end)} písniček ▶"
+                    text=t(
+                        "more_items",
+                        n=min(ENTRIES_PAGE_SIZE, total - end),
+                    )
                     if end < total
-                    else "Konec seznamu",
+                    else t("list_end"),
                     height=32,
                     command=lambda: self._change_page(job, 1),
                     state="normal" if end < total else "disabled",
@@ -2969,7 +2973,7 @@ class JobRow(ctk.CTkFrame):
                 err = getattr(self, f"_err_{entry.video_id}", None)
                 if err is not None:
                     if entry.status == JobStatus.ERROR and entry.error:
-                        err.configure(text=entry.error)
+                        err.configure(text=display_error(entry.error))
                         err.grid()
                     else:
                         err.grid_remove()
@@ -3001,13 +3005,13 @@ class JobRow(ctk.CTkFrame):
         if entry.status == JobStatus.DONE:
             return "✓"
         if entry.status == JobStatus.ERROR:
-            return "Chyba"
+            return t("status.ERROR")
         if entry.status == JobStatus.SKIPPED:
             return "—"
         if not entry.selected:
             return "—"
         if entry.status == JobStatus.CONVERTING:
-            return "MP3…"
+            return t("converting_short")
         return ""
 
     @staticmethod
@@ -3087,8 +3091,8 @@ class App(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
         self.title(f"{APP_NAME} {APP_VERSION}")
-        self.geometry("1360x700")
-        self.minsize(1180, 520)
+        self.geometry("1480x740")
+        self.minsize(1240, 560)
 
         self.config_data = AppConfig.load()
         if self.config_data.appearance not in ("dark", "light", "system"):
@@ -3152,7 +3156,7 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(
             header,
-            text="YouTube videa · MP3 · playlisty",
+            text=t("subtitle"),
             font=ctk.CTkFont(size=12),
             text_color=("#607d8b", "#78909c"),
         ).grid(row=1, column=0, sticky="w")
@@ -3187,8 +3191,8 @@ class App(ctk.CTk):
 
         ctk.CTkButton(
             hdr_btns,
-            text="Log chyb",
-            width=84,
+            text=t("log_errors"),
+            width=110,
             height=28,
             fg_color=("#efebe9", "#2a2220"),
             text_color=("#6d4c41", "#bcaaa4"),
@@ -3198,8 +3202,8 @@ class App(ctk.CTk):
 
         self.pause_btn = ctk.CTkButton(
             hdr_btns,
-            text="⏸ Pauza",
-            width=96,
+            text=t("pause"),
+            width=130,
             height=28,
             fg_color=("#fff3e0", "#3e2f1a"),
             text_color=("#ef6c00", "#ffb74d"),
@@ -3219,7 +3223,7 @@ class App(ctk.CTk):
 
         self.url_entry = ctk.CTkEntry(
             url_row,
-            placeholder_text="Vlož odkaz na video, playlist nebo kanál (@…)",
+            placeholder_text=t("url_placeholder"),
             height=34,
             font=ctk.CTkFont(size=13),
             border_width=0,
@@ -3230,8 +3234,8 @@ class App(ctk.CTk):
 
         ctk.CTkButton(
             url_row,
-            text="Přidat",
-            width=100,
+            text=t("add"),
+            width=120,
             height=34,
             font=ctk.CTkFont(size=13, weight="bold"),
             fg_color=("#1565c0", "#1e88e5"),
@@ -3244,7 +3248,7 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(
             controls,
-            text="Formát",
+            text=t("format"),
             text_color=("#78909c", "#90a4ae"),
             font=ctk.CTkFont(size=12),
         ).pack(side="left", padx=(0, 6))
@@ -3264,7 +3268,7 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(
             controls,
-            text="Kvalita",
+            text=t("quality"),
             text_color=("#78909c", "#90a4ae"),
             font=ctk.CTkFont(size=12),
         ).pack(side="left", padx=(12, 6))
@@ -3272,18 +3276,19 @@ class App(ctk.CTk):
             controls,
             values=[l for l, _ in QUALITY_OPTIONS],
             height=28,
-            width=150,
+            width=180,
             font=ctk.CTkFont(size=12),
         )
-        q_labels = {v: l for l, v in QUALITY_OPTIONS}
         self.quality_menu.set(
-            q_labels.get(self.config_data.default_quality, "Nejlepší dostupné")
+            option_label(
+                QUALITY_OPTIONS, self.config_data.default_quality, t("quality.best")
+            )
         )
         self.quality_menu.pack(side="left")
 
         ctk.CTkLabel(
             controls,
-            text="Playlist",
+            text=t("playlist"),
             text_color=("#78909c", "#90a4ae"),
             font=ctk.CTkFont(size=12),
         ).pack(side="left", padx=(12, 6))
@@ -3294,69 +3299,77 @@ class App(ctk.CTk):
             height=28,
             font=ctk.CTkFont(size=12),
         )
-        pl_labels = {value: text for text, value in PLAYLIST_MODE_OPTIONS}
         self.playlist_mode_seg.set(
-            pl_labels.get(self.config_data.playlist_mode, "Vždy se zeptat")
+            option_label(
+                PLAYLIST_MODE_OPTIONS, self.config_data.playlist_mode, t("playlist.ask")
+            )
         )
         self.playlist_mode_seg.pack(side="left", padx=(0, 14))
 
+        switches = ctk.CTkFrame(card, fg_color="transparent")
+        switches.grid(row=2, column=0, sticky="ew", padx=(12, 8), pady=(0, 4))
+
         self.clip_switch = ctk.CTkSwitch(
-            controls,
-            text="Monitorovat schránku",
+            switches,
+            text=t("watch_clipboard"),
             command=self._toggle_clipboard,
             font=ctk.CTkFont(size=12),
         )
         self.clip_switch.pack(side="left", padx=(0, 10))
 
         self.auto_switch = ctk.CTkSwitch(
-            controls,
-            text="Automaticky stahovat po přidání",
+            switches,
+            text=t("auto_download"),
             command=self._toggle_auto,
             font=ctk.CTkFont(size=12),
         )
         self.auto_switch.pack(side="left", padx=(0, 10))
 
         self.auto_remove_switch = ctk.CTkSwitch(
-            controls,
-            text="Smazat z fronty po stažení",
+            switches,
+            text=t("remove_after"),
             command=self._toggle_auto_remove,
             font=ctk.CTkFont(size=12),
         )
         self.auto_remove_switch.pack(side="left")
 
         cookies_row = ctk.CTkFrame(card, fg_color="transparent")
-        cookies_row.grid(row=2, column=0, sticky="ew", padx=(12, 8), pady=(0, 8))
+        cookies_row.grid(row=3, column=0, sticky="ew", padx=(12, 8), pady=(0, 8))
 
         ctk.CTkLabel(
             cookies_row,
-            text="Cookies",
+            text=t("cookies"),
             text_color=("#78909c", "#90a4ae"),
             font=ctk.CTkFont(size=12),
         ).pack(side="left", padx=(0, 8))
 
         self.cookies_mode_menu = ctk.CTkOptionMenu(
             cookies_row,
-            values=["Vypnuto", "Z prohlížeče", "Ze souboru"],
-            width=130,
+            values=[label for label, _mode in COOKIE_MODE_OPTIONS],
+            width=160,
             height=28,
             command=self._on_cookies_mode,
         )
-        mode_labels = {"off": "Vypnuto", "browser": "Z prohlížeče", "file": "Ze souboru"}
         self.cookies_mode_menu.set(
-            mode_labels.get(self.config_data.cookies_mode, "Vypnuto")
+            option_label(
+                COOKIE_MODE_OPTIONS, self.config_data.cookies_mode, t("cookies.off")
+            )
         )
         self.cookies_mode_menu.pack(side="left", padx=(0, 8))
 
         self.cookies_browser_menu = ctk.CTkOptionMenu(
             cookies_row,
             values=[l for l, _ in BROWSER_OPTIONS],
-            width=160,
+            width=200,
             height=28,
             command=self._on_cookies_browser,
         )
-        b_labels = {v: l for l, v in BROWSER_OPTIONS}
         self.cookies_browser_menu.set(
-            b_labels.get(self.config_data.cookies_browser, "Firefox (doporučeno)")
+            option_label(
+                BROWSER_OPTIONS,
+                self.config_data.cookies_browser,
+                t("browser.firefox"),
+            )
         )
         self.cookies_browser_menu.pack(side="left", padx=(0, 8))
 
@@ -3364,7 +3377,7 @@ class App(ctk.CTk):
             cookies_row,
             text=self._short_path(self.config_data.cookies_file or "cookies.txt", 28)
             if self.config_data.cookies_file
-            else "žádný soubor",
+            else t("no_file"),
             anchor="w",
             font=ctk.CTkFont(size=11),
             text_color=("#78909c", "#90a4ae"),
@@ -3373,8 +3386,8 @@ class App(ctk.CTk):
 
         self.cookies_file_btn = ctk.CTkButton(
             cookies_row,
-            text="Vybrat…",
-            width=80,
+            text=t("browse"),
+            width=100,
             height=28,
             command=self._pick_cookies_file,
         )
@@ -3383,22 +3396,22 @@ class App(ctk.CTk):
         self._sync_cookies_widgets()
 
         side = ctk.CTkFrame(card, fg_color="transparent")
-        side.grid(row=0, column=1, rowspan=3, sticky="ne", padx=(0, 12), pady=(8, 8))
+        side.grid(row=0, column=1, rowspan=4, sticky="ne", padx=(0, 12), pady=(8, 8))
 
         import_btns = ctk.CTkFrame(side, fg_color="transparent")
         import_btns.pack(anchor="e")
 
         ctk.CTkLabel(
             import_btns,
-            text="Vložit:",
+            text=t("paste_label"),
             text_color=("#78909c", "#90a4ae"),
             font=ctk.CTkFont(size=12),
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
             import_btns,
-            text="Ze schránky",
-            width=100,
+            text=t("from_clipboard"),
+            width=130,
             height=28,
             fg_color="transparent",
             border_width=1,
@@ -3410,8 +3423,8 @@ class App(ctk.CTk):
 
         ctk.CTkButton(
             import_btns,
-            text="Ze souboru",
-            width=96,
+            text=t("from_file"),
+            width=110,
             height=28,
             fg_color="transparent",
             border_width=1,
@@ -3447,7 +3460,7 @@ class App(ctk.CTk):
             ctk.CTkButton(
                 row,
                 text=open_text,
-                width=108,
+                width=130,
                 height=26,
                 command=lambda k=kind: self._open_folder(k),
                 **colors,
@@ -3457,7 +3470,7 @@ class App(ctk.CTk):
         self.audio_folder_lbl = folder_line(
             self.config_data.audio_dir,
             "audio",
-            "Složka MP3",
+            t("folder_mp3"),
             {
                 "fg_color": ("#e8f5e9", "#1b3d2f"),
                 "text_color": ("#2e7d32", "#a5d6a7"),
@@ -3467,7 +3480,7 @@ class App(ctk.CTk):
         self.video_folder_lbl = folder_line(
             self.config_data.video_dir,
             "video",
-            "Složka videa",
+            t("folder_video"),
             {
                 "fg_color": ("#e3f2fd", "#1e3a5f"),
                 "text_color": ("#1565c0", "#bbdefb"),
@@ -3477,8 +3490,8 @@ class App(ctk.CTk):
 
         ctk.CTkButton(
             side,
-            text="Vyčistit hotové",
-            width=120,
+            text=t("clear_done"),
+            width=150,
             height=28,
             fg_color="transparent",
             border_width=1,
@@ -3499,7 +3512,7 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(
             qhead,
-            text="Fronta stahování",
+            text=t("queue_title"),
             font=ctk.CTkFont(size=14, weight="bold"),
             anchor="w",
         ).grid(row=0, column=0, sticky="w")
@@ -3512,7 +3525,7 @@ class App(ctk.CTk):
 
         self.empty_lbl = ctk.CTkLabel(
             self.queue_scroll,
-            text="Zatím nic ve frontě.\nVlož odkaz, importuj soubor nebo schránku.",
+            text=t("queue_empty"),
             text_color=("#90a4ae", "#607d8b"),
             font=ctk.CTkFont(size=14),
             justify="center",
@@ -3534,7 +3547,7 @@ class App(ctk.CTk):
         self.totals_bar.grid(row=0, column=0, sticky="w")
         self.status_bar = ctk.CTkLabel(
             status_row,
-            text="Status: nic ve frontě",
+            text=t("status_empty"),
             font=bar_font,
             anchor="e",
             text_color=bar_color,
@@ -3611,7 +3624,7 @@ class App(ctk.CTk):
 
     def _add_urls(self, urls: list[str]) -> None:
         if not urls:
-            messagebox.showwarning(APP_NAME, "Nenalezen žádný YouTube odkaz.")
+            messagebox.showwarning(APP_NAME, t("no_links"))
             return
         normal: list[str] = []
         ask: list[str] = []
@@ -3628,10 +3641,10 @@ class App(ctk.CTk):
             )
         self._persist_prefs()
         if normal and added == 0 and skipped and not ask:
-            messagebox.showinfo(APP_NAME, "Všechny odkazy už jsou ve frontě.")
+            messagebox.showinfo(APP_NAME, t("all_queued"))
         elif skipped:
             messagebox.showinfo(
-                APP_NAME, f"Přidáno {added}, přeskočeno duplicit {skipped}."
+                APP_NAME, t("added_skipped", added=added, skipped=skipped)
             )
         if ask:
             self._ask_queue.extend(ask)
@@ -3643,7 +3656,7 @@ class App(ctk.CTk):
         if not urls and text and is_youtube_url(text):
             urls = [text]
         if not urls:
-            messagebox.showwarning(APP_NAME, "Vlož platný YouTube odkaz.")
+            messagebox.showwarning(APP_NAME, t("bad_url"))
             return
         self._add_urls(urls)
         self.url_entry.delete(0, "end")
@@ -3658,10 +3671,10 @@ class App(ctk.CTk):
 
     def _import_file(self) -> None:
         path = filedialog.askopenfilename(
-            title="Import odkazů",
+            title=t("import_title"),
             filetypes=[
-                ("Text / seznamy", "*.txt *.csv *.m3u *.md"),
-                ("Všechny soubory", "*.*"),
+                (t("filetypes_lists"), "*.txt *.csv *.m3u *.md"),
+                (t("filetypes_all"), "*.*"),
             ],
         )
         if not path:
@@ -3669,7 +3682,7 @@ class App(ctk.CTk):
         try:
             text = Path(path).read_text(encoding="utf-8", errors="ignore")
         except Exception as exc:
-            messagebox.showerror(APP_NAME, f"Soubor nejde přečíst:\n{exc}")
+            messagebox.showerror(APP_NAME, t("file_unreadable", exc=exc))
             log_exception(f"Import souboru {path}", exc)
             return
         self._add_urls(extract_youtube_urls(text))
@@ -3720,7 +3733,7 @@ class App(ctk.CTk):
             self._begin_playlist_preview(url)
             return
         if skipped:
-            messagebox.showinfo(APP_NAME, "Playlist už je ve frontě.")
+            messagebox.showinfo(APP_NAME, t("playlist_queued"))
 
     def _finish_ask(self) -> None:
         self._ask_busy = False
@@ -3757,14 +3770,14 @@ class App(ctk.CTk):
         )
         ctk.CTkLabel(
             loading,
-            text="Načítám seznam videí…",
+            text=t("loading_list"),
             justify="center",
             font=ctk.CTkFont(size=14),
         ).pack(padx=28, pady=(24, 12))
         ctk.CTkButton(
             loading,
-            text="Zrušit",
-            width=110,
+            text=t("cancel"),
+            width=120,
             command=lambda: self._cancel_preview(gen, loading),
         ).pack(pady=(0, 20))
         self._place_window(loading, 360, 148)
@@ -3808,7 +3821,7 @@ class App(ctk.CTk):
         if err or not entries:
             messagebox.showerror(
                 APP_NAME,
-                err or "Playlist je prázdný nebo nejde načíst.",
+                display_error(err) if err else t("err.playlist_empty"),
                 parent=self,
             )
             self._finish_ask()
@@ -3819,7 +3832,7 @@ class App(ctk.CTk):
         self, url: str, title: str, entries: list[PlaylistEntry]
     ) -> None:
         win = ctk.CTkToplevel(self)
-        win.title("Vyber videa z playlistu")
+        win.title(t("pick_title"))
         win.minsize(760, 480)
         win.grid_columnconfigure(0, weight=1)
         win.grid_rowconfigure(2, weight=1)
@@ -3834,7 +3847,7 @@ class App(ctk.CTk):
         head.grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 4))
         ctk.CTkLabel(
             win,
-            text="Zaškrtnutá videa se po potvrzení přidají do fronty. Výchozí je vše.",
+            text=t("pick_hint"),
             anchor="w",
             text_color=("#607d8b", "#90a4ae"),
             font=ctk.CTkFont(size=12),
@@ -3865,16 +3878,16 @@ class App(ctk.CTk):
         foot.grid(row=3, column=0, sticky="ew", padx=16, pady=(0, 16))
         foot.grid_columnconfigure(0, weight=1)
 
-        ok_btn = ctk.CTkButton(foot, text="Přidat do fronty", width=160, height=36)
+        ok_btn = ctk.CTkButton(foot, text=t("add_to_queue"), width=220, height=36)
 
         def selected_count() -> int:
             return sum(1 for entry in entries if entry.selected)
 
         def sync_count() -> None:
             n = selected_count()
-            count_lbl.configure(text=f"Vybráno {n} z {len(entries)}")
+            count_lbl.configure(text=t("selected_count", n=n, total=len(entries)))
             ok_btn.configure(
-                text=f"Přidat do fronty ({n})",
+                text=t("add_to_queue_n", n=n),
                 state="normal" if n else "disabled",
             )
 
@@ -3884,7 +3897,7 @@ class App(ctk.CTk):
             page["n"] = max(0, min(pages - 1, page["n"]))
             start = page["n"] * ENTRIES_PAGE_SIZE
             end = min(start + ENTRIES_PAGE_SIZE, total)
-            page_lbl.configure(text=f"{start + 1}–{end} z {total}")
+            page_lbl.configure(text=t("page_range", start=start + 1, end=end, total=total))
             prev_btn.configure(state="normal" if page["n"] > 0 else "disabled")
             next_btn.configure(state="normal" if page["n"] < pages - 1 else "disabled")
             for child in scroll.winfo_children():
@@ -3921,15 +3934,15 @@ class App(ctk.CTk):
 
         ctk.CTkButton(
             toolbar,
-            text="Vybrat vše",
-            width=100,
+            text=t("select_all"),
+            width=140,
             height=28,
             command=lambda: set_all(True),
         ).grid(row=0, column=0, padx=(0, 6))
         ctk.CTkButton(
             toolbar,
-            text="Zrušit výběr",
-            width=100,
+            text=t("select_none"),
+            width=150,
             height=28,
             fg_color="transparent",
             border_width=1,
@@ -3940,7 +3953,7 @@ class App(ctk.CTk):
         fmt_box.grid(row=0, column=2, sticky="w", padx=(12, 0))
         ctk.CTkLabel(
             fmt_box,
-            text="Formát",
+            text=t("format"),
             text_color=("#607d8b", "#90a4ae"),
             font=ctk.CTkFont(size=12),
         ).pack(side="left", padx=(0, 6))
@@ -3989,15 +4002,15 @@ class App(ctk.CTk):
             if job is None:
                 messagebox.showinfo(
                     APP_NAME,
-                    "Playlist už je ve frontě, nebo není nic vybrané.",
+                    t("playlist_not_added"),
                     parent=self,
                 )
             self._finish_ask()
 
         ctk.CTkButton(
             foot,
-            text="Zrušit",
-            width=100,
+            text=t("cancel"),
+            width=120,
             height=36,
             fg_color="transparent",
             border_width=1,
@@ -4043,12 +4056,7 @@ class App(ctk.CTk):
             self.cookies_file_lbl.configure(text_color=("#b0bec5", "#546e7a"))
 
     def _on_cookies_mode(self, label: str) -> None:
-        mapping = {
-            "Vypnuto": "off",
-            "Z prohlížeče": "browser",
-            "Ze souboru": "file",
-        }
-        self.config_data.cookies_mode = mapping.get(label, "off")
+        self.config_data.cookies_mode = option_value(COOKIE_MODE_OPTIONS, label, "off")
         self.config_data.save()
         self._sync_cookies_widgets()
         log.info("Cookies režim: %s", self.config_data.cookies_mode)
@@ -4056,14 +4064,14 @@ class App(ctk.CTk):
             self._refresh_browser_cookies(ask_quit=True)
 
     def _on_cookies_browser(self, label: str) -> None:
-        for l, v in BROWSER_OPTIONS:
-            if l == label:
-                self.config_data.cookies_browser = v
-                self.config_data.save()
-                log.info("Cookies prohlížeč: %s", v)
-                if self.config_data.cookies_mode == "browser":
-                    self._refresh_browser_cookies(ask_quit=True)
-                return
+        value = option_value(BROWSER_OPTIONS, label, "")
+        if not value:
+            return
+        self.config_data.cookies_browser = value
+        self.config_data.save()
+        log.info("Cookies prohlížeč: %s", value)
+        if self.config_data.cookies_mode == "browser":
+            self._refresh_browser_cookies(ask_quit=True)
 
     def _refresh_browser_cookies(self, ask_quit: bool = True) -> None:
         """Export cookies now; for Brave/Chrome ask to kill background processes."""
@@ -4078,7 +4086,7 @@ class App(ctk.CTk):
                     0,
                     lambda p=path, b=browser: messagebox.showinfo(
                         APP_NAME,
-                        f"Cookies z {b} načteny.\n{p.name}",
+                        t("cookies_loaded", browser=b, name=p.name),
                         parent=self,
                     ),
                 )
@@ -4093,31 +4101,27 @@ class App(ctk.CTk):
                         ),
                     )
                 else:
-                    tip = (
-                        "\n\nTip: použij Firefox, nebo v Brave rozšíření "
-                        "„Get cookies.txt LOCALLY“ a režim Cookies → Ze souboru."
-                    )
+                    tip = t("cookies_tip", source=t("cookies.file"))
                     self.after(
                         0,
                         lambda m=msg + tip, b=browser: messagebox.showerror(
                             APP_NAME,
-                            f"Cookies z {b} nejde načíst:\n{m}",
+                            t("cookies_fail", browser=b, msg=m),
                             parent=self,
                         ),
                     )
 
         pids = list_browser_pids(browser)
         if pids and ask_quit:
+            name = browser.capitalize()
             if not messagebox.askyesno(
                 APP_NAME,
-                f"{browser.capitalize()} běží ({len(pids)} procesů) a má zamčené cookies.\n\n"
-                f"Ukončit {browser.capitalize()} a načíst cookies?\n"
-                f"Prohlížeč se zavře až po kliknutí na Ano. Otevřené karty se zavřou.",
+                t("cookies_running", browser=name, n=len(pids)),
                 parent=self,
             ):
                 messagebox.showinfo(
                     APP_NAME,
-                    f"{browser.capitalize()} zůstává spuštěný, cookies se nenačetly.",
+                    t("cookies_kept", browser=name),
                     parent=self,
                 )
                 return
@@ -4128,8 +4132,7 @@ class App(ctk.CTk):
     def _ask_quit_and_retry_cookies(self, browser: str, n: int, err: str) -> None:
         if messagebox.askyesno(
             APP_NAME,
-            f"{err}\n\n{browser.capitalize()} pořád běží ({n} procesů).\n"
-            f"Ukončit ho až teď a zkusit cookies znovu?",
+            t("cookies_still", err=err, browser=browser.capitalize(), n=n),
             parent=self,
         ):
             def retry() -> None:
@@ -4139,19 +4142,17 @@ class App(ctk.CTk):
                         0,
                         lambda p=path, b=browser: messagebox.showinfo(
                             APP_NAME,
-                            f"Cookies z {b} načteny.\n{p.name}",
+                            t("cookies_loaded", browser=b, name=p.name),
                             parent=self,
                         ),
                     )
                 except Exception as exc:
-                    tip = (
-                        "\n\nTip: Firefox, nebo Brave → Get cookies.txt LOCALLY → Ze souboru."
-                    )
+                    tip = t("cookies_tip_short", source=t("cookies.file"))
                     self.after(
                         0,
                         lambda e=friendly_error(exc) + tip: messagebox.showerror(
                             APP_NAME,
-                            f"Stále nejde:\n{e}",
+                            t("cookies_still_fail", msg=e),
                             parent=self,
                         ),
                     )
@@ -4160,16 +4161,16 @@ class App(ctk.CTk):
 
     def _pick_cookies_file(self) -> None:
         path = filedialog.askopenfilename(
-            title="Vyber cookies.txt (Netscape formát)",
+            title=t("pick_cookies"),
             filetypes=[
-                ("Cookies", "*.txt"),
-                ("Všechny soubory", "*.*"),
+                (t("filetype_cookies"), "*.txt"),
+                (t("filetypes_all"), "*.*"),
             ],
         )
         if path:
             self.config_data.cookies_file = path
             self.config_data.cookies_mode = "file"
-            self.cookies_mode_menu.set("Ze souboru")
+            self.cookies_mode_menu.set(t("cookies.file"))
             self.cookies_file_lbl.configure(text=self._short_path(path, 36))
             self.config_data.save()
             self._sync_cookies_widgets()
@@ -4178,10 +4179,10 @@ class App(ctk.CTk):
     def _toggle_pause(self) -> None:
         if self.engine.is_paused():
             self.engine.set_paused(False)
-            self.pause_btn.configure(text="⏸ Pauza")
+            self.pause_btn.configure(text=t("pause"))
         else:
             self.engine.set_paused(True)
-            self.pause_btn.configure(text="▶ Pokračovat")
+            self.pause_btn.configure(text=t("resume"))
         self._refresh_status_bar()
         for job in self.engine.jobs():
             row = self.rows.get(job.id)
@@ -4194,11 +4195,7 @@ class App(ctk.CTk):
             if kind == "audio"
             else self.config_data.video_dir
         )
-        title = (
-            "Vyber složku pro MP3"
-            if kind == "audio"
-            else "Vyber složku pro videa"
-        )
+        title = t("pick_mp3") if kind == "audio" else t("pick_video")
         path = filedialog.askdirectory(initialdir=initial, title=title)
         if path:
             if kind == "audio":
@@ -4226,7 +4223,7 @@ class App(ctk.CTk):
                 LOG_FILE.write_text("", encoding="utf-8")
             os.startfile(LOG_FILE)  # type: ignore[attr-defined]
         except Exception as exc:
-            messagebox.showerror(APP_NAME, f"Log nejde otevřít:\n{exc}")
+            messagebox.showerror(APP_NAME, t("log_open_fail", exc=exc))
             log_exception("Otevření logu", exc)
 
     def _clear_finished(self) -> None:
@@ -4239,7 +4236,7 @@ class App(ctk.CTk):
     def _start_job(self, job_id: str) -> None:
         if self.engine.is_paused():
             self.engine.set_paused(False)
-            self.pause_btn.configure(text="⏸ Pauza")
+            self.pause_btn.configure(text=t("pause"))
         self.engine.start_job(job_id)
 
     def _toggle_job_pause(self, job_id: str) -> None:
@@ -4250,7 +4247,7 @@ class App(ctk.CTk):
     def _retry_entry(self, job_id: str, video_id: str) -> None:
         if self.engine.is_paused():
             self.engine.set_paused(False)
-            self.pause_btn.configure(text="⏸ Pauza")
+            self.pause_btn.configure(text=t("pause"))
         self.engine.retry_entry(job_id, video_id)
 
     def _toggle_expand(self, job_id: str) -> None:
@@ -4303,8 +4300,8 @@ class App(ctk.CTk):
             return
         text = disk_warning_text(
             [
-                ("složka videa", self.config_data.video_dir),
-                ("složka MP3", self.config_data.audio_dir),
+                (t("disk_video"), self.config_data.video_dir),
+                (t("disk_audio"), self.config_data.audio_dir),
             ]
         )
         if not text:
@@ -4403,10 +4400,7 @@ def _append_launch_log(text: str) -> None:
 
 def main() -> None:
     if sys.version_info < (3, 10):
-        msg = (
-            f"Potřebuješ Python 3.10+ (máš {sys.version.split()[0]}).\n"
-            "Spusť start.bat, nebo: winget install Python.Python.3.12"
-        )
+        msg = t("python_required", ver=sys.version.split()[0])
         _append_launch_log(msg)
         raise SystemExit(msg)
 
@@ -4428,8 +4422,7 @@ def main() -> None:
         try:
             messagebox.showerror(
                 APP_NAME,
-                f"Aplikace spadla při startu.\n\n{exc}\n\n"
-                f"Log: {LOG_FILE}\nSpouštění: {LAUNCH_LOG}",
+                t("crash", exc=exc, log=LOG_FILE, launch=LAUNCH_LOG),
             )
         except Exception:
             pass

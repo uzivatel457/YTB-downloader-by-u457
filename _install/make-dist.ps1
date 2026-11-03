@@ -32,6 +32,7 @@ New-Item -ItemType Directory -Path (Join-Path $AppRoot "data") | Out-Null
 # Files / dirs to ship
 $Files = @(
     "main.py",
+    "i18n.py",
     "requirements.txt",
     "install.bat",
     "setup.bat",
@@ -67,6 +68,7 @@ YT Downloader $Version — distribuční balíček
 3. Spusť "YT Downloader.vbs"
 
 Uživatelská data (fronta, nastavení, logy) vzniknou ve složce data\ až po prvním spuštění.
+Jazyk rozhraní se bere z Windows: čeština, slovenština, němčina, španělština, jinak angličtina.
 "@ | Set-Content -Path (Join-Path $AppRoot "CTI-ME.txt") -Encoding UTF8
 
 # Remove old zip with same name, then compress
