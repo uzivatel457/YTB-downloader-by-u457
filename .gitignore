@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.mp4
+*.mp3
+*.webm
+*.mkv
+
+# aktuální nastavení, fronta, logy a cookies — nepublikovat
+data/*
+!data/.gitkeep
+*.log
+cookies*.txt
+
+_install/_staging/

@@ -1,0 +1,22 @@
+---
+description: After program fixes, rebuild the distribution ZIP in _install
+alwaysApply: true
+---
+
+# Distribuční ZIP (`_install`)
+
+Po každé opravě nebo změně programu (kód, `install.bat` / `setup.bat` / `start.bat` / `YT Downloader.vbs`, `requirements.txt`, `README.md`, `tools/refresh-path.bat`) **vždy znovu sestav** distribuční balíček:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File _install\make-dist.ps1
+```
+
+## Pravidla balíčku
+
+- Výstup: `_install/YT-Downloader-<verze>.zip` (verze z `APP_VERSION` v `main.py`)
+- Bez uživatelských dat: žádné `data/config.json`, `queue.json`, logy, cookies
+- Bez `.venv`, `__pycache__`, `.git`
+- **Do ZIPu nedávej** skript `_install/make-dist.ps1` (zůstává jen vedle zipu)
+- Starší `YT-Downloader-*.zip` ve `_install` smaž — nech jen aktuální
+
+Nespoléhej na uživatele — po dokončení opravy spusť `make-dist.ps1` sám.
