@@ -12,10 +12,12 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
 import uuid
+import webbrowser
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from logging.handlers import RotatingFileHandler
@@ -27,6 +29,7 @@ import customtkinter as ctk
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 from tkinter import filedialog, messagebox
 
+from changelog import GITHUB_ISSUES, fetch_changelog, format_changelog
 from i18n import (
     LANG,
     TITLE_LOADING,
@@ -42,6 +45,13 @@ from i18n import (
     translate_known_error,
     ui_title,
 )
+from updater import (
+    ReleaseInfo,
+    download_release_zip,
+    fetch_latest_release,
+    is_newer,
+    normalize_version,
+)
 
 try:
     import yt_dlp
@@ -52,7 +62,7 @@ except ImportError as exc:  # pragma: no cover
 
 
 APP_NAME = "YT Downloader"
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.5.3"
 
 
 def app_root() -> Path:
@@ -448,6 +458,8 @@ class AppConfig:
     cookies_file: str = ""
     # dark | light | system
     appearance: str = "dark"
+    # GitHub release version the user chose to ignore until a newer one appears
+    ignored_update_version: str = ""
     stats_videos: int = 0
     stats_mp3: int = 0
     stats_bytes: int = 0
@@ -3128,6 +3140,7 @@ class App(ctk.CTk):
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._flush_ui)
+        self.after(1500, self._schedule_update_check)
 
     def _apply_switch_states(self) -> None:
         if self.config_data.clipboard_monitor:
@@ -3188,6 +3201,17 @@ class App(ctk.CTk):
             btn.pack(side="left", padx=1, pady=2)
             self.theme_buttons[mode] = btn
         self._apply_theme_buttons()
+
+        ctk.CTkButton(
+            hdr_btns,
+            text=t("changelog"),
+            width=100,
+            height=28,
+            fg_color=("#e3f2fd", "#1a2740"),
+            text_color=("#1565c0", "#90caf9"),
+            hover_color=("#bbdefb", "#243656"),
+            command=self._open_changelog,
+        ).pack(side="left", padx=(0, 6))
 
         ctk.CTkButton(
             hdr_btns,
@@ -4215,6 +4239,248 @@ class App(ctk.CTk):
         )
         path.mkdir(parents=True, exist_ok=True)
         os.startfile(path)  # type: ignore[attr-defined]
+
+    def _open_changelog(self) -> None:
+        existing = getattr(self, "_changelog_win", None)
+        if existing is not None:
+            try:
+                if existing.winfo_exists():
+                    existing.lift()
+                    existing.focus_force()
+                    return
+            except Exception:
+                pass
+
+        win = ctk.CTkToplevel(self)
+        self._changelog_win = win
+        win.title(t("changelog_title"))
+        win.minsize(640, 420)
+        win.grid_columnconfigure(0, weight=1)
+        win.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            win,
+            text=t("changelog_intro"),
+            anchor="w",
+            justify="left",
+            wraplength=660,
+            font=ctk.CTkFont(size=13),
+            text_color=("#455a64", "#b0bec5"),
+        ).grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 8))
+
+        box = ctk.CTkTextbox(win, font=ctk.CTkFont(size=13), wrap="word")
+        box.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 8))
+        box.insert("end", t("changelog_loading"))
+        box.configure(state="disabled")
+
+        foot = ctk.CTkFrame(win, fg_color="transparent")
+        foot.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 16))
+        ctk.CTkButton(
+            foot,
+            text=t("changelog_open"),
+            width=180,
+            fg_color=("#1565c0", "#1e88e5"),
+            hover_color=("#0d47a1", "#42a5f5"),
+            command=lambda: webbrowser.open(GITHUB_ISSUES),
+        ).pack(side="right")
+
+        self._place_window(win, 720, 520)
+        self._raise_window(win)
+
+        def load() -> None:
+            try:
+                known, fixed = fetch_changelog()
+                text = format_changelog(known, fixed)
+            except Exception:
+                text = "\n\n".join(
+                    [
+                        t("changelog_offline", url=GITHUB_ISSUES),
+                        t("changelog_fixed"),
+                        t("changelog_fixed_151_title"),
+                        t("changelog_fixed_151_body"),
+                    ]
+                )
+
+            def show() -> None:
+                try:
+                    if not win.winfo_exists():
+                        return
+                except Exception:
+                    return
+                box.configure(state="normal")
+                box.delete("1.0", "end")
+                box.insert("end", text)
+                box.configure(state="disabled")
+
+            self.after(0, show)
+
+        threading.Thread(target=load, daemon=True).start()
+
+    def _schedule_update_check(self) -> None:
+        def work() -> None:
+            try:
+                release = fetch_latest_release()
+            except Exception:
+                return
+            if not is_newer(release.version, APP_VERSION):
+                return
+            ignored = normalize_version(self.config_data.ignored_update_version)
+            if ignored and normalize_version(release.version) == ignored:
+                return
+            self.after(0, lambda: self._show_update_dialog(release))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show_update_dialog(self, release: ReleaseInfo) -> None:
+        if getattr(self, "_update_win", None) is not None:
+            try:
+                if self._update_win.winfo_exists():
+                    self._raise_window(self._update_win)
+                    return
+            except Exception:
+                pass
+
+        win = ctk.CTkToplevel(self)
+        self._update_win = win
+        win.title(t("update_title"))
+        win.resizable(False, False)
+        win.protocol("WM_DELETE_WINDOW", win.destroy)
+
+        body = ctk.CTkFrame(win, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=20, pady=16)
+
+        ctk.CTkLabel(
+            body,
+            text=t("update_body", remote=release.version, local=APP_VERSION),
+            wraplength=420,
+            justify="left",
+            anchor="w",
+            font=ctk.CTkFont(size=14),
+        ).pack(fill="x", pady=(0, 12))
+
+        status = ctk.CTkLabel(
+            body,
+            text="",
+            wraplength=420,
+            justify="left",
+            anchor="w",
+            text_color=("#546e7a", "#90a4ae"),
+            font=ctk.CTkFont(size=12),
+        )
+        status.pack(fill="x", pady=(0, 8))
+
+        btns = ctk.CTkFrame(body, fg_color="transparent")
+        btns.pack(fill="x")
+
+        def set_busy(busy: bool) -> None:
+            state = "disabled" if busy else "normal"
+            for child in btns.winfo_children():
+                try:
+                    child.configure(state=state)
+                except Exception:
+                    pass
+
+        def on_ignore() -> None:
+            self.config_data.ignored_update_version = normalize_version(
+                release.version
+            )
+            self.config_data.save()
+            win.destroy()
+
+        def on_github() -> None:
+            if release.html_url:
+                webbrowser.open(release.html_url)
+            win.destroy()
+
+        def on_install() -> None:
+            if not release.zip_url:
+                status.configure(text=t("update_no_zip"))
+                return
+            set_busy(True)
+            status.configure(text=t("update_downloading", done="0 %"))
+
+            def progress(done: int, total: int) -> None:
+                if total > 0:
+                    pct = min(100, int(done * 100 / total))
+                    text = t("update_downloading", done=f"{pct} %")
+                else:
+                    mb = done / (1024 * 1024)
+                    text = t("update_downloading", done=f"{mb:.1f} MB")
+                self.after(0, lambda: status.configure(text=text))
+
+            def work() -> None:
+                zip_path: Optional[Path] = None
+                try:
+                    name = release.zip_name or f"YT-Downloader-{release.version}.zip"
+                    zip_path = Path(tempfile.gettempdir()) / name
+                    download_release_zip(release.zip_url, zip_path, progress)
+                except Exception as exc:
+                    log_exception("Stažení aktualizace", exc)
+
+                    def fail_dl() -> None:
+                        set_busy(False)
+                        status.configure(text=t("update_download_fail", exc=exc))
+
+                    self.after(0, fail_dl)
+                    return
+
+                def apply() -> None:
+                    bat = APP_ROOT / "tools" / "apply-update.bat"
+                    if not bat.is_file():
+                        set_busy(False)
+                        status.configure(
+                            text=t("update_apply_fail", exc=bat)
+                        )
+                        return
+                    try:
+                        creation = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                        subprocess.Popen(
+                            ["cmd", "/c", str(bat), str(zip_path), str(APP_ROOT)],
+                            cwd=str(APP_ROOT),
+                            creationflags=creation,
+                            close_fds=True,
+                        )
+                    except Exception as exc:
+                        log_exception("Spuštění apply-update", exc)
+                        set_busy(False)
+                        status.configure(text=t("update_apply_fail", exc=exc))
+                        return
+                    try:
+                        win.destroy()
+                    except Exception:
+                        pass
+                    self._on_close()
+
+                self.after(0, apply)
+
+            threading.Thread(target=work, daemon=True).start()
+
+        ctk.CTkButton(
+            btns,
+            text=t("update_ignore"),
+            width=150,
+            fg_color="transparent",
+            border_width=1,
+            text_color=("#37474f", "#cfd8dc"),
+            command=on_ignore,
+        ).pack(side="left")
+        ctk.CTkButton(
+            btns,
+            text=t("update_github"),
+            width=150,
+            fg_color=("#1565c0", "#1e88e5"),
+            hover_color=("#0d47a1", "#42a5f5"),
+            command=on_github,
+        ).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(
+            btns,
+            text=t("update_install"),
+            width=180,
+            command=on_install,
+        ).pack(side="right")
+
+        self._place_window(win, 480, 200)
+        self._raise_window(win)
 
     def _open_log(self) -> None:
         try:

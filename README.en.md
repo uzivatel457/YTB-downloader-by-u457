@@ -1,6 +1,6 @@
 # YT Downloader
 
-**Version 1.5.1**
+**Version 1.5.3**
 
 A portable desktop app for YouTube — videos, MP3, and playlists.
 
@@ -76,6 +76,16 @@ Build the zip (no user data, no `.venv`):
 ```powershell
 powershell -ExecutionPolicy Bypass -File _install\make-dist.ps1
 ```
+
+## Updates
+
+On startup the app checks [GitHub Releases](https://github.com/uzivatel457/YTB-downloader-by-u457/releases). If a newer version exists, you can ignore it, open the release page, or install (downloads the ZIP, replaces app files, keeps `data\` and `.venv`, runs `setup.bat`, restarts).
+
+To publish: build the ZIP above → create a GitHub Release (tag `v1.x.y`) → attach `YT-Downloader-<version>.zip`.
+
+## Changelog
+
+[Known and fixed bugs](CHANGELOG.en.md), following GitHub issues. In the app, use the **Changes** button.
 
 ## Note
 

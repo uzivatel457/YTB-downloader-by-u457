@@ -40,6 +40,10 @@ $Files = @(
     "YT Downloader.vbs",
     "README.md",
     "README.en.md",
+    "CHANGELOG.md",
+    "CHANGELOG.en.md",
+    "changelog.py",
+    "updater.py",
     ".gitignore"
 )
 
@@ -63,9 +67,13 @@ foreach ($shot in @("screenshot-cs.png", "screenshot-en.png")) {
     }
 }
 
-$Refresh = Join-Path $Root "tools\refresh-path.bat"
-if (Test-Path $Refresh) {
-    Copy-Item $Refresh -Destination (Join-Path $AppRoot "tools\refresh-path.bat") -Force
+foreach ($tool in @("refresh-path.bat", "apply-update.bat")) {
+    $src = Join-Path $Root "tools\$tool"
+    if (Test-Path $src) {
+        Copy-Item $src -Destination (Join-Path $AppRoot "tools\$tool") -Force
+    } else {
+        Write-Warning "Missing: tools\$tool"
+    }
 }
 
 # Empty portable data marker (no config/queue/logs/cookies)

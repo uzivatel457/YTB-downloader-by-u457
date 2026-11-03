@@ -1,6 +1,6 @@
 # YT Downloader
 
-**Verze 1.5.1**
+**Verze 1.5.3**
 
 Přenositelná desktopová aplikace pro YouTube — videa, MP3, playlisty.
 
@@ -76,6 +76,16 @@ Sestavení zipu (bez uživatelských dat, bez `.venv`):
 ```powershell
 powershell -ExecutionPolicy Bypass -File _install\make-dist.ps1
 ```
+
+## Aktualizace
+
+Po startu aplikace zkontroluje [GitHub Releases](https://github.com/uzivatel457/YTB-downloader-by-u457/releases). Při nové verzi nabídne ignorovat, otevřít release, nebo nainstalovat (stáhne ZIP, přepíše soubory programu, zachová `data\` a `.venv`, spustí `setup.bat` a restartuje).
+
+Vydání nové verze: sestav ZIP výše → na GitHubu vytvoř Release (tag `v1.x.y`) → přilož asset `YT-Downloader-<verze>.zip`.
+
+## Changelog
+
+[Známé a opravené chyby](CHANGELOG.md) podle issues na GitHubu. V aplikaci je tlačítko **Změny**.
 
 ## Poznámka
 
