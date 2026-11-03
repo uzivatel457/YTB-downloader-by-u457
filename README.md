@@ -1,6 +1,16 @@
 # YT Downloader
 
+**Verze 1.5.1**
+
 Přenositelná desktopová aplikace pro YouTube — videa, MP3, playlisty.
+
+**English:** [README.en.md](README.en.md)
+
+## Náhled
+
+Hlavní okno. Jazyk rozhraní se bere z Windows (čeština, slovenština, němčina, španělština, jinak angličtina). Fronta na snímku je ukázková.
+
+<img src="docs/screenshot-cs.png" alt="YT Downloader — hlavní okno v češtině, tmavý motiv, fronta s videem, MP3 a playlistem" width="920">
 
 ## Rychlý start (nový počítač)
 
@@ -53,6 +63,7 @@ Potom spusť `setup.bat`.
 - Oddělené složky pro video a MP3
 - Cookies pro videa vyžadující přihlášení
 - Log chyb: `data\app.log`
+- Jazyk rozhraní podle Windows: čeština, slovenština, němčina, španělština, jinak angličtina
 
 ## Distribuční balíček
 

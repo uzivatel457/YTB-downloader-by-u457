@@ -39,6 +39,7 @@ $Files = @(
     "start.bat",
     "YT Downloader.vbs",
     "README.md",
+    "README.en.md",
     ".gitignore"
 )
 
@@ -48,6 +49,17 @@ foreach ($f in $Files) {
         Copy-Item $src -Destination (Join-Path $AppRoot $f) -Force
     } else {
         Write-Warning "Missing: $f"
+    }
+}
+
+$Docs = Join-Path $AppRoot "docs"
+New-Item -ItemType Directory -Path $Docs | Out-Null
+foreach ($shot in @("screenshot-cs.png", "screenshot-en.png")) {
+    $src = Join-Path $Root "docs\$shot"
+    if (Test-Path $src) {
+        Copy-Item $src -Destination (Join-Path $Docs $shot) -Force
+    } else {
+        Write-Warning "Missing: docs\$shot"
     }
 }
 
